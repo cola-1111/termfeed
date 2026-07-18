@@ -1,0 +1,16 @@
+[package]
+name = "termfeed"
+version = "0.1.0"
+edition = "2024"
+description = "A terminal RSS ticker that scrolls feed headlines like an LED marquee"
+license = "MIT"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+crossterm = "0.28"
+feed-rs = "2"
+reqwest = { version = "0.12", features = ["rustls-tls"], default-features = false }
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+toml = "0.8"

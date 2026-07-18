@@ -1,0 +1,15 @@
+# Scroll speed (ms per character)
+scroll_speed_ms = 100
+
+# Feed refresh interval (seconds)
+refresh_interval_sec = 300
+
+# Separator between items
+separator = " | "
+
+# Max items per feed
+max_items_per_feed = 5
+
+[[feeds]]
+name = "PK"
+url = "https://www.publickey1.jp/atom.xml"
