@@ -1244,7 +1244,6 @@ dependencies = [
  "clap",
  "crossterm",
  "feed-rs",
- "libc",
  "reqwest",
  "serde",
  "tokio",

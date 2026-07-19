@@ -1,7 +1,6 @@
 mod config;
 mod feed;
 mod ticker;
-mod titlebar;
 
 use clap::Parser;
 use crossterm::{
@@ -28,11 +27,6 @@ struct Cli {
     #[arg(long, help = "Run in pane mode (no alternate screen, for herdr/tmux pane)")]
     pane: bool,
 
-    #[arg(long, help = "Run as background daemon (updates terminal title bar)")]
-    daemon: bool,
-
-    #[arg(long, help = "Stop the background daemon")]
-    stop: bool,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -78,11 +72,6 @@ impl Drop for TerminalGuard {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    if cli.stop {
-        titlebar::stop_daemon()?;
-        return Ok(());
-    }
-
     let cfg = config::load_config(cli.config)?;
 
     if cli.once {
@@ -92,10 +81,6 @@ async fn main() -> anyhow::Result<()> {
             println!("[{}] {}", item.feed_name, item.title);
         }
         return Ok(());
-    }
-
-    if cli.daemon {
-        return titlebar::run_daemon(cfg).await;
     }
 
     let mode = if cli.pane {

@@ -70,7 +70,7 @@ pub fn load_config(path: Option<PathBuf>) -> anyhow::Result<Config> {
     Ok(config)
 }
 
-pub fn home_dir() -> anyhow::Result<PathBuf> {
+fn home_dir() -> anyhow::Result<PathBuf> {
     #[cfg(unix)]
     {
         std::env::var("HOME")
