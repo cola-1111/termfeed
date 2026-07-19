@@ -53,7 +53,7 @@ impl TerminalGuard {
                 execute!(io::stdout(), EnterAlternateScreen, cursor::Hide)?;
             }
             DisplayMode::Pane => {
-                execute!(io::stdout(), cursor::Hide)?;
+                execute!(io::stdout(), EnterAlternateScreen, cursor::Hide)?;
             }
         }
         Ok(Self { mode })
@@ -67,7 +67,7 @@ impl Drop for TerminalGuard {
                 let _ = execute!(io::stdout(), LeaveAlternateScreen, cursor::Show);
             }
             DisplayMode::Pane => {
-                let _ = execute!(io::stdout(), cursor::Show);
+                let _ = execute!(io::stdout(), LeaveAlternateScreen, cursor::Show);
             }
         }
         let _ = terminal::disable_raw_mode();
@@ -86,7 +86,8 @@ async fn main() -> anyhow::Result<()> {
     let cfg = config::load_config(cli.config)?;
 
     if cli.once {
-        let items = feed::fetch_all_feeds(&cfg.feeds, cfg.max_items_per_feed).await;
+        let client = feed::build_client()?;
+        let items = feed::fetch_all_feeds(&client, &cfg.feeds, cfg.max_items_per_feed).await;
         for item in &items {
             println!("[{}] {}", item.feed_name, item.title);
         }
@@ -108,8 +109,9 @@ async fn main() -> anyhow::Result<()> {
 
 async fn run_ticker(cfg: config::Config, mode: DisplayMode) -> anyhow::Result<()> {
     let feed_names: Vec<String> = cfg.feeds.iter().map(|f| f.name.clone()).collect();
+    let client = feed::build_client()?;
 
-    let items = feed::fetch_all_feeds(&cfg.feeds, cfg.max_items_per_feed).await;
+    let items = feed::fetch_all_feeds(&client, &cfg.feeds, cfg.max_items_per_feed).await;
     let ticker = Arc::new(RwLock::new(ticker::Ticker::new(
         &items,
         &cfg.separator,
@@ -130,7 +132,7 @@ async fn run_ticker(cfg: config::Config, mode: DisplayMode) -> anyhow::Result<()
         interval.tick().await;
         loop {
             interval.tick().await;
-            let new_items = feed::fetch_all_feeds(&feeds, max_items).await;
+            let new_items = feed::fetch_all_feeds(&client, &feeds, max_items).await;
             if !new_items.is_empty() {
                 let mut t = ticker_clone.write().await;
                 t.update_items(&new_items, &separator, &feed_names_clone);

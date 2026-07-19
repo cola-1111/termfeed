@@ -6,26 +6,23 @@ pub struct FeedItem {
     pub title: String,
 }
 
-pub async fn fetch_all_feeds(
-    feeds: &[FeedEntry],
-    max_items: usize,
-) -> Vec<FeedItem> {
-    let client = match reqwest::Client::builder()
+pub fn build_client() -> anyhow::Result<reqwest::Client> {
+    reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .user_agent("termfeed/0.1.0")
         .build()
-    {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("Failed to build HTTP client: {}", e);
-            return Vec::new();
-        }
-    };
+        .map_err(|e| anyhow::anyhow!("failed to build HTTP client: {}", e))
+}
 
+pub async fn fetch_all_feeds(
+    client: &reqwest::Client,
+    feeds: &[FeedEntry],
+    max_items: usize,
+) -> Vec<FeedItem> {
     let mut items = Vec::new();
 
     for feed_entry in feeds {
-        match fetch_feed(&client, feed_entry, max_items).await {
+        match fetch_feed(client, feed_entry, max_items).await {
             Ok(feed_items) => items.extend(feed_items),
             Err(e) => eprintln!("[{}] fetch error: {}", feed_entry.name, e),
         }

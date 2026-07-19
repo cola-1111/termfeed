@@ -37,7 +37,7 @@ pub fn load_config(path: Option<PathBuf>) -> anyhow::Result<Config> {
     let config_path = match path {
         Some(p) => p,
         None => {
-            let home = dirs_path()?;
+            let home = home_dir()?;
             let candidates = [
                 home.join(".config/termfeed/config.toml"),
                 home.join(".termfeed.toml"),
@@ -59,11 +59,28 @@ pub fn load_config(path: Option<PathBuf>) -> anyhow::Result<Config> {
         anyhow::bail!("No feeds configured. Add [[feeds]] entries to your config file.");
     }
 
+    if config.scroll_speed_ms == 0 {
+        anyhow::bail!("scroll_speed_ms must be > 0");
+    }
+
+    if config.refresh_interval_sec == 0 {
+        anyhow::bail!("refresh_interval_sec must be > 0");
+    }
+
     Ok(config)
 }
 
-fn dirs_path() -> anyhow::Result<PathBuf> {
-    std::env::var("HOME")
-        .map(PathBuf::from)
-        .map_err(|_| anyhow::anyhow!("HOME environment variable not set"))
+pub fn home_dir() -> anyhow::Result<PathBuf> {
+    #[cfg(unix)]
+    {
+        std::env::var("HOME")
+            .map(PathBuf::from)
+            .map_err(|_| anyhow::anyhow!("HOME environment variable not set"))
+    }
+    #[cfg(windows)]
+    {
+        std::env::var("USERPROFILE")
+            .map(PathBuf::from)
+            .map_err(|_| anyhow::anyhow!("USERPROFILE environment variable not set"))
+    }
 }
