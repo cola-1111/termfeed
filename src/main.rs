@@ -54,10 +54,10 @@ impl TerminalGuard {
     pub(crate) fn setup(mode: DisplayMode) -> anyhow::Result<Self> {
         terminal::enable_raw_mode()?;
         match mode {
-            DisplayMode::Fullscreen | DisplayMode::Pane => {
+            DisplayMode::Fullscreen => {
                 execute!(io::stdout(), EnterAlternateScreen, cursor::Hide)?;
             }
-            DisplayMode::Daemon => {
+            DisplayMode::Pane | DisplayMode::Daemon => {
                 execute!(io::stdout(), cursor::Hide)?;
             }
         }
@@ -68,10 +68,10 @@ impl TerminalGuard {
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
         match self.mode {
-            DisplayMode::Fullscreen | DisplayMode::Pane => {
+            DisplayMode::Fullscreen => {
                 let _ = execute!(io::stdout(), LeaveAlternateScreen, cursor::Show);
             }
-            DisplayMode::Daemon => {
+            DisplayMode::Pane | DisplayMode::Daemon => {
                 let _ = execute!(io::stdout(), cursor::Show);
             }
         }

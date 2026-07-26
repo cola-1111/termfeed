@@ -96,10 +96,11 @@ fn strip_link_refs(s: &str) -> String {
     let mut rest = s;
     while let Some(open) = rest.find('[') {
         result.push_str(&rest[..open]);
+        let is_nested = open > 0 && rest.as_bytes()[open - 1] == b'[';
         let after_open = &rest[open + 1..];
         if let Some(close) = after_open.find(']') {
             let content = &after_open[..close];
-            if !content.is_empty() && content.bytes().all(|b| b.is_ascii_digit()) {
+            if !is_nested && !content.is_empty() && content.bytes().all(|b| b.is_ascii_digit()) {
                 rest = &after_open[close + 1..];
             } else {
                 result.push('[');

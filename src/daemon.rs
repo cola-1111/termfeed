@@ -8,6 +8,12 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{self, Duration};
 
+#[cfg(unix)]
+use std::os::unix::io::AsRawFd;
+
+#[cfg(unix)]
+use std::io::Write;
+
 fn cache_dir() -> anyhow::Result<PathBuf> {
     let home = crate::config::home_dir()?;
     Ok(home.join(".cache/termfeed"))
@@ -43,20 +49,44 @@ pub fn read_cache() -> anyhow::Result<Vec<FeedItem>> {
     Ok(items)
 }
 
-struct PidGuard;
+#[cfg(unix)]
+struct PidGuard {
+    _file: std::fs::File,
+}
 
+#[cfg(unix)]
 impl PidGuard {
     fn new() -> anyhow::Result<Self> {
         let dir = cache_dir()?;
         std::fs::create_dir_all(&dir)?;
-        std::fs::write(pid_path()?, std::process::id().to_string())?;
-        Ok(Self)
+        let path = pid_path()?;
+
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&path)?;
+
+        unsafe {
+            if libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) != 0 {
+                anyhow::bail!("Another termfeed daemon is already running.");
+            }
+        }
+
+        write!(file, "{}", std::process::id())?;
+        file.sync_all()?;
+
+        Ok(Self { _file: file })
     }
 }
 
-impl Drop for PidGuard {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(pid_path().unwrap());
+#[cfg(not(unix))]
+struct PidGuard;
+
+#[cfg(not(unix))]
+impl PidGuard {
+    fn new() -> anyhow::Result<Self> {
+        Ok(Self)
     }
 }
 
@@ -139,6 +169,7 @@ pub async fn run_daemon(cfg: Config) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(unix)]
 pub fn stop_daemon() -> anyhow::Result<()> {
     let path = match pid_path() {
         Ok(p) if p.exists() => p,
@@ -151,19 +182,79 @@ pub fn stop_daemon() -> anyhow::Result<()> {
     let pid_str = std::fs::read_to_string(&path)?;
     let pid: u32 = pid_str.trim().parse()?;
 
-    #[cfg(unix)]
-    {
-        unsafe {
-            libc::kill(pid as i32, libc::SIGTERM);
-        }
-        eprintln!("termfeed daemon (pid {}) stopped.", pid);
+    if !is_termfeed_process(pid) {
+        anyhow::bail!(
+            "PID {} does not appear to be a termfeed daemon. Manual cleanup required.",
+            pid
+        );
     }
 
-    #[cfg(not(unix))]
-    {
-        eprintln!("Daemon stop is only supported on Unix. Remove {} manually.", path.display());
+    eprintln!("Sending SIGTERM to termfeed daemon (pid {})...", pid);
+
+    unsafe {
+        let result = libc::kill(pid as i32, libc::SIGTERM);
+        if result != 0 {
+            let err = std::io::Error::last_os_error();
+            let errno = err.raw_os_error().unwrap_or(0);
+            match errno {
+                libc::ESRCH => {
+                    anyhow::bail!("Daemon process (pid {}) not found.", pid);
+                }
+                libc::EPERM => {
+                    anyhow::bail!(
+                        "Permission denied to signal daemon (pid {}). Try as the process owner.",
+                        pid
+                    );
+                }
+                _ => {
+                    anyhow::bail!("Failed to signal daemon (pid {}): {}", pid, err);
+                }
+            }
+        }
+    }
+
+    let mut stopped = false;
+    for _ in 0..30 {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        unsafe {
+            if libc::kill(pid as i32, 0) != 0 {
+                stopped = true;
+                break;
+            }
+        }
+    }
+
+    if stopped {
+        eprintln!("termfeed daemon (pid {}) stopped.", pid);
+    } else {
+        eprintln!(
+            "termfeed daemon (pid {}) sent SIGTERM but may still be running.",
+            pid
+        );
     }
 
     let _ = std::fs::remove_file(&path);
+    Ok(())
+}
+
+#[cfg(unix)]
+fn is_termfeed_process(pid: u32) -> bool {
+    let proc_dir = std::path::Path::new("/proc");
+    if !proc_dir.exists() {
+        return true;
+    }
+    let cmdline_path = format!("/proc/{}/cmdline", pid);
+    match std::fs::read(&cmdline_path) {
+        Ok(content) => {
+            let s = String::from_utf8_lossy(&content);
+            s.contains("termfeed")
+        }
+        Err(_) => false,
+    }
+}
+
+#[cfg(not(unix))]
+pub fn stop_daemon() -> anyhow::Result<()> {
+    eprintln!("Daemon stop is only supported on Unix.");
     Ok(())
 }
