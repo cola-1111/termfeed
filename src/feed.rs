@@ -117,3 +117,118 @@ fn strip_link_refs(s: &str) -> String {
     result.push_str(rest);
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sanitize_normal_text() {
+        assert_eq!(sanitize("hello world"), "hello world");
+    }
+
+    #[test]
+    fn test_sanitize_removes_nul() {
+        assert_eq!(sanitize("hello\x00world"), "helloworld");
+    }
+
+    #[test]
+    fn test_sanitize_removes_esc() {
+        assert_eq!(sanitize("hello\x1bworld"), "helloworld");
+    }
+
+    #[test]
+    fn test_sanitize_removes_bel() {
+        assert_eq!(sanitize("hello\x07world"), "helloworld");
+    }
+
+    #[test]
+    fn test_sanitize_empty_string() {
+        assert_eq!(sanitize(""), "");
+    }
+
+    #[test]
+    fn test_sanitize_japanese() {
+        assert_eq!(sanitize("こんにちは世界"), "こんにちは世界");
+    }
+
+    #[test]
+    fn test_sanitize_mixed_control() {
+        assert_eq!(sanitize("a\x00b\x1bc"), "abc");
+    }
+
+    #[test]
+    fn test_strip_link_refs_removes_numeric() {
+        assert_eq!(strip_link_refs("hello [1] world"), "hello  world");
+    }
+
+    #[test]
+    fn test_strip_link_refs_preserves_text() {
+        assert_eq!(strip_link_refs("[text]"), "[text]");
+    }
+
+    #[test]
+    fn test_strip_link_refs_preserves_nested() {
+        assert_eq!(strip_link_refs("[[1]]"), "[[1]]");
+    }
+
+    #[test]
+    fn test_strip_link_refs_multiple() {
+        assert_eq!(strip_link_refs("[1][2][3]"), "");
+    }
+
+    #[test]
+    fn test_strip_link_refs_no_brackets() {
+        assert_eq!(strip_link_refs("no brackets"), "no brackets");
+    }
+
+    #[test]
+    fn test_strip_link_refs_unclosed() {
+        assert_eq!(strip_link_refs("open [without close"), "open [without close");
+    }
+
+    #[test]
+    fn test_strip_link_refs_empty_brackets() {
+        assert_eq!(strip_link_refs("[]"), "[]");
+    }
+
+    #[test]
+    fn test_strip_link_refs_mixed() {
+        assert_eq!(strip_link_refs("text [1] [label] [2]"), "text  [label] ");
+    }
+
+    #[test]
+    fn test_strip_html_simple() {
+        let result = strip_html("<p>hello</p>");
+        assert!(result.contains("hello"));
+        assert!(!result.contains("<"));
+        assert!(!result.contains(">"));
+    }
+
+    #[test]
+    fn test_strip_html_empty() {
+        assert_eq!(strip_html(""), "");
+    }
+
+    #[test]
+    fn test_strip_html_plain_text() {
+        let result = strip_html("plain text");
+        assert_eq!(result.trim(), "plain text");
+    }
+
+    #[test]
+    fn test_strip_html_multiple_tags() {
+        let result = strip_html("<b>bold</b> and <i>italic</i>");
+        assert!(result.contains("bold"));
+        assert!(result.contains("and"));
+        assert!(result.contains("italic"));
+        assert!(!result.contains("<"));
+        assert!(!result.contains(">"));
+    }
+
+    #[test]
+    fn test_strip_html_no_control_chars() {
+        let result = strip_html("<p>hello\x1bworld</p>");
+        assert!(!result.contains("\x1b"));
+    }
+}
