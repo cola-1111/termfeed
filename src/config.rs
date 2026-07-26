@@ -84,3 +84,28 @@ pub fn home_dir() -> anyhow::Result<PathBuf> {
             .map_err(|_| anyhow::anyhow!("USERPROFILE environment variable not set"))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_scroll_speed() {
+        assert_eq!(default_scroll_speed(), 100);
+    }
+
+    #[test]
+    fn test_default_refresh_interval() {
+        assert_eq!(default_refresh_interval(), 300);
+    }
+
+    #[test]
+    fn test_default_separator() {
+        assert_eq!(default_separator(), " | ");
+    }
+
+    #[test]
+    fn test_default_max_items() {
+        assert_eq!(default_max_items(), 5);
+    }
+}
