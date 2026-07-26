@@ -1,9 +1,13 @@
 use crate::config::FeedEntry;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FeedItem {
     pub feed_name: String,
     pub title: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub link: Option<String>,
 }
 
 pub fn build_client() -> anyhow::Result<reqwest::Client> {
@@ -54,9 +58,19 @@ async fn fetch_feed(
             if title.trim().is_empty() {
                 return None;
             }
+            let description = e
+                .content
+                .and_then(|c| c.body)
+                .or_else(|| e.summary.map(|s| s.content))
+                .map(|s| strip_html(&s));
+
+            let link = e.links.first().map(|l| l.href.clone());
+
             Some(FeedItem {
                 feed_name: entry.name.clone(),
                 title: sanitize(title.trim()),
+                description,
+                link,
             })
         })
         .collect();
@@ -68,4 +82,37 @@ fn sanitize(s: &str) -> String {
     s.chars()
         .filter(|c| !c.is_control() && *c != '\x1b' && *c != '\x07')
         .collect()
+}
+
+fn strip_html(s: &str) -> String {
+    let text = html2text::from_read(s.as_bytes(), 1000)
+        .unwrap_or_else(|_| s.to_string());
+    let cleaned = strip_link_refs(&text);
+    sanitize(cleaned.trim())
+}
+
+fn strip_link_refs(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(open) = rest.find('[') {
+        result.push_str(&rest[..open]);
+        let after_open = &rest[open + 1..];
+        if let Some(close) = after_open.find(']') {
+            let content = &after_open[..close];
+            if !content.is_empty() && content.bytes().all(|b| b.is_ascii_digit()) {
+                rest = &after_open[close + 1..];
+            } else {
+                result.push('[');
+                result.push_str(content);
+                result.push(']');
+                rest = &after_open[close + 1..];
+            }
+        } else {
+            result.push_str(&rest[open..]);
+            rest = "";
+            break;
+        }
+    }
+    result.push_str(rest);
+    result
 }
