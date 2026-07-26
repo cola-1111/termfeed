@@ -1,6 +1,8 @@
 mod config;
+mod daemon;
 mod feed;
 mod ticker;
+mod viewer;
 
 use clap::Parser;
 use crossterm::{
@@ -27,27 +29,36 @@ struct Cli {
     #[arg(long, help = "Run in pane mode (no alternate screen, for herdr/tmux pane)")]
     pane: bool,
 
+    #[arg(long, help = "Run as background daemon (fetches feeds and writes cache)")]
+    daemon: bool,
+
+    #[arg(long, help = "Stop the background daemon")]
+    stop: bool,
+
+    #[arg(long, help = "Attach to daemon cache and display ticker (for herdr popup)")]
+    attach: bool,
 }
 
 #[derive(Clone, Copy, PartialEq)]
-enum DisplayMode {
+pub(crate) enum DisplayMode {
     Fullscreen,
     Pane,
+    Daemon,
 }
 
-struct TerminalGuard {
+pub(crate) struct TerminalGuard {
     mode: DisplayMode,
 }
 
 impl TerminalGuard {
-    fn setup(mode: DisplayMode) -> anyhow::Result<Self> {
+    pub(crate) fn setup(mode: DisplayMode) -> anyhow::Result<Self> {
         terminal::enable_raw_mode()?;
         match mode {
             DisplayMode::Fullscreen => {
                 execute!(io::stdout(), EnterAlternateScreen, cursor::Hide)?;
             }
-            DisplayMode::Pane => {
-                execute!(io::stdout(), EnterAlternateScreen, cursor::Hide)?;
+            DisplayMode::Pane | DisplayMode::Daemon => {
+                execute!(io::stdout(), cursor::Hide)?;
             }
         }
         Ok(Self { mode })
@@ -60,8 +71,8 @@ impl Drop for TerminalGuard {
             DisplayMode::Fullscreen => {
                 let _ = execute!(io::stdout(), LeaveAlternateScreen, cursor::Show);
             }
-            DisplayMode::Pane => {
-                let _ = execute!(io::stdout(), LeaveAlternateScreen, cursor::Show);
+            DisplayMode::Pane | DisplayMode::Daemon => {
+                let _ = execute!(io::stdout(), cursor::Show);
             }
         }
         let _ = terminal::disable_raw_mode();
@@ -72,6 +83,15 @@ impl Drop for TerminalGuard {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
+    if cli.stop {
+        daemon::stop_daemon()?;
+        return Ok(());
+    }
+
+    if cli.attach {
+        return run_attach().await;
+    }
+
     let cfg = config::load_config(cli.config)?;
 
     if cli.once {
@@ -81,6 +101,10 @@ async fn main() -> anyhow::Result<()> {
             println!("[{}] {}", item.feed_name, item.title);
         }
         return Ok(());
+    }
+
+    if cli.daemon {
+        return daemon::run_daemon(cfg).await;
     }
 
     let mode = if cli.pane {
@@ -135,7 +159,7 @@ async fn run_ticker(cfg: config::Config, mode: DisplayMode) -> anyhow::Result<()
             let t = ticker.read().await;
             match mode {
                 DisplayMode::Fullscreen => t.render_frame()?,
-                DisplayMode::Pane => t.render_pane_frame()?,
+                DisplayMode::Pane | DisplayMode::Daemon => t.render_pane_frame()?,
             }
         }
 
@@ -166,6 +190,51 @@ async fn run_ticker(cfg: config::Config, mode: DisplayMode) -> anyhow::Result<()
 
     refresh_handle.abort();
     // _guard dropped here → terminal restored even on panic
+
+    Ok(())
+}
+
+async fn run_attach() -> anyhow::Result<()> {
+    let items = daemon::read_cache()?;
+    let app = Arc::new(RwLock::new(viewer::ViewerApp::new(items)));
+
+    let _guard = TerminalGuard::setup(DisplayMode::Fullscreen)?;
+
+    let backend = ratatui::backend::CrosstermBackend::new(io::stdout());
+    let mut terminal = ratatui::Terminal::new(backend)?;
+
+    let app_clone = Arc::clone(&app);
+    let refresh_handle = tokio::spawn(async move {
+        let mut interval = time::interval(Duration::from_secs(10));
+        interval.tick().await;
+        loop {
+            interval.tick().await;
+            if let Ok(new_items) = daemon::read_cache() {
+                if !new_items.is_empty() {
+                    let mut a = app_clone.write().await;
+                    a.update_items(new_items);
+                }
+            }
+        }
+    });
+
+    loop {
+        {
+            let mut a = app.write().await;
+            terminal.draw(|f| viewer::render(&mut a, f))?;
+        }
+
+        if event::poll(Duration::from_millis(100))? {
+            if let Event::Key(key) = event::read()? {
+                let mut a = app.write().await;
+                if a.handle_key(key) {
+                    break;
+                }
+            }
+        }
+    }
+
+    refresh_handle.abort();
 
     Ok(())
 }

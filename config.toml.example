@@ -13,3 +13,7 @@ max_items_per_feed = 5
 [[feeds]]
 name = "PK"
 url = "https://www.publickey1.jp/atom.xml"
+
+[[feeds]]
+name = "HN"
+url = "https://hnrss.org/frontpage?points=100"
